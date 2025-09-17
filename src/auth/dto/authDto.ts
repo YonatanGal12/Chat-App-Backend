@@ -22,8 +22,14 @@ export class SignInDto {
     userName: string
 }
 
-export class AuthResultDto extends SignInDto {
+export class PartialJwtDto extends SignInDto {
     @IsNotEmpty()
     @IsString()
     accessToken: string;
+}
+
+export class FullJwtDto extends PartialJwtDto {
+    @IsNotEmpty()
+    @IsString()
+    refreshToken: string;
 }
