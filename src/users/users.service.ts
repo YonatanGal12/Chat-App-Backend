@@ -33,13 +33,28 @@ export class UsersService {
 
   async findUserById(id: number) {
     return this.databaseService.user.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        chatMembers: {
+          include: {
+            chat: true, // 👈 so you can access chat.id
+          },
+        },
+      },
     });
   }
 
   async findUserByUserName(userName: string) {
     return this.databaseService.user.findUnique({
       where: { userName }
+    });
+  }
+
+  async findUsersByUserNames(userNames: string[]) {
+    return this.databaseService.user.findMany({
+      where: { userName: {
+        in: userNames
+      } }
     });
   }
 

@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { AuthDto, FullJwtDto, SignInDto } from './dto/authDto';
+import { AuthDto, FullJwtDto, PartialJwtDto, SignInDto, SignUpDto } from './dto/authDto';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Response } from 'express';
-import { strict } from 'assert';
+import { type Response } from 'express';
+import { Req, Res } from '@nestjs/common';
 
 @Injectable()
 export class AuthService {
@@ -27,7 +27,7 @@ export class AuthService {
         throw new UnauthorizedException('Wrong password.');
     }
 
-    async authenticateUser(authDto: AuthDto, res:Response): Promise<FullJwtDto>{
+    async authenticateUser(authDto: AuthDto, res:Response): Promise<PartialJwtDto>{
         const user = await this.validateUser(authDto);
         if(!user)
             throw new UnauthorizedException();
@@ -36,7 +36,7 @@ export class AuthService {
         
     }
 
-    async signIn(signInDto: SignInDto, res: Response): Promise<FullJwtDto>{
+    async signIn(signInDto: SignInDto, res: Response): Promise<PartialJwtDto>{
         const tokenPayload = {
             sub: signInDto.userId,
             userName: signInDto.userName
@@ -57,9 +57,51 @@ export class AuthService {
 
         return{
             accessToken,
-            refreshToken,
             userId: signInDto.userId,
             userName: signInDto.userName
         }
+    }
+
+    async signUp(signUpDto: SignUpDto, res: Response){
+
+        const possibleExistingUser = await this.usersService.findUserByUserName(signUpDto.userName);
+
+        if(possibleExistingUser)
+            throw new UnauthorizedException("Username already exists.");
+
+        const user = await this.usersService.createUser(signUpDto);
+
+        return this.signIn({ userId: user.id, userName: user.userName }, res);
+    }
+
+    async refreshAccessToken(@Req() req, @Res() res: Response){
+        const refreshToken = req.cookies['refreshToken'];
+        if (!refreshToken) {
+            return res.status(401).json({ message: 'No refresh token provided' });
+        }
+        
+        try {
+            const payload = await this.jwtService.verifyAsync(refreshToken, {
+                secret: process.env.JWT_REFRESH_TOKEN_SECRET,
+            });
+
+            const user = await this.usersService.findUserById(payload.sub);
+            if (!user) {
+                return res.status(401).json({ message: 'User not found' });
+            }
+
+            const accessToken = await this.jwtService.signAsync({
+                sub: user.id,
+                userName: user.userName,
+            });
+
+            // Return the new access token
+            return res.json({ accessToken });
+
+        } 
+        catch (err) {
+            return res.status(401).json({ message: 'Invalid refresh token' });
+        }
+
     }
 }
