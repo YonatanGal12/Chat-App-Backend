@@ -18,6 +18,7 @@ model User {
   phoneNumber String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  isLoggedIn  Boolean  @default(false)
 
   messages    Message[]
   chatMembers ChatMember[]
@@ -27,8 +28,6 @@ model Message {
   id            Int           @id @default(autoincrement())
   content       String
   sentAt        DateTime      @default(now())
-  seenAt        DateTime?
-  messageStatus MessageStatus @default(SENT)
 
   user   User @relation(fields: [userId], references: [id])
   userId Int
@@ -40,7 +39,6 @@ model Message {
 model Chat {
   id       Int      @id @default(autoincrement())
   chatName String
-  chatType ChatType @default(PRIVATE)
 
   chatMembers ChatMember[]
   messages    Message[]
@@ -48,26 +46,10 @@ model Chat {
 
 model ChatMember {
   id   Int  @id @default(autoincrement())
-  role Role @default(MEMBER)
 
   user   User @relation(fields: [userId], references: [id])
   userId Int
 
   chat   Chat @relation(fields: [chatId], references: [id])
   chatId Int
-}
-
-enum MessageStatus {
-  SENT
-  SEEN
-}
-
-enum ChatType {
-  PRIVATE
-  GROUP
-}
-
-enum Role {
-  MEMBER
-  ADMIN
 }

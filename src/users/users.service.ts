@@ -37,7 +37,7 @@ export class UsersService {
       include: {
         chatMembers: {
           include: {
-            chat: true, // 👈 so you can access chat.id
+            chat: true, 
           },
         },
       },
@@ -68,7 +68,8 @@ export class UsersService {
       ...(updateUserDto.userName && {userName: updateUserDto.userName}),
       ...(updateUserDto.password && {password: hashedPassword}),
       ...(updateUserDto.email && {email: updateUserDto.email}),
-      ...(updateUserDto.phoneNumber !== undefined && {phoneNumber: updateUserDto.phoneNumber})
+      ...(updateUserDto.phoneNumber !== undefined && {phoneNumber: updateUserDto.phoneNumber}),
+      ...(updateUserDto.isLoggedIn !== undefined && {isLoggedIn: updateUserDto.isLoggedIn})
     }
 
     return this.databaseService.user.update({

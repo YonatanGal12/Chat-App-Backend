@@ -1,5 +1,5 @@
 import { PartialType } from "@nestjs/mapped-types"
-import { IsEmail, IsNotEmpty, IsOptional, IsPhoneNumber, IsString } from "class-validator"
+import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsPhoneNumber, IsString } from "class-validator"
 
 export class UserDto{
     @IsNotEmpty()
@@ -17,6 +17,9 @@ export class UserDto{
     @IsOptional()
     @IsPhoneNumber("IL")
     phoneNumber?: string
+
+    @IsBoolean()
+    isLoggedIn?: boolean
 }
 
 export class UpdateUserDto extends PartialType(UserDto){}

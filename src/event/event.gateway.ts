@@ -4,17 +4,24 @@ import { type MessageDto, type NewGCDto } from "./event.dto";
 import { UsersService } from "src/users/users.service";
 import { DatabaseService } from "src/database/database.service";
 import { JwtService } from '@nestjs/jwt';
+import { Client } from "node_modules/socket.io/dist/client";
+import { ChatService } from "src/chats/chat.service";
 
 
-@WebSocketGateway({namespace: 'chat', cors: true})
+@WebSocketGateway({namespace: 'chat', cors: { origin: "http://localhost:5173", credentials: true}})
 export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect{
 
     @WebSocketServer()
     server: Server;
 
-    constructor(private userService: UsersService, private databaseSerive: DatabaseService, private jwtService: JwtService) {}
+    constructor(private userService: UsersService,
+                private databaseSerive: DatabaseService, 
+                private jwtService: JwtService,
+                private chatService: ChatService) {}
 
-    onlineUsers = new Map<number, string[]>();
+
+    private userSockets = new Map<number, Set<string>>();
+
 
     afterInit(server: Server) {
         console.log(`Server running`)
@@ -22,7 +29,6 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
 
     async handleConnection(client: Socket) {
 
-        console.log("sdfsdfsd")
         const token = client.handshake.auth?.token;
         if (!token) {
             console.log("Client tried to connect without a token, disconnecting...");
@@ -30,24 +36,42 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
             return;
         }
 
-        const payload = await this.jwtService.verifyAsync(token, {
-            secret: process.env.JWT_ACCESS_TOKEN_SECRET,
-        });
+        try{
+            const payload = await this.jwtService.verifyAsync(token, {
+                secret: process.env.JWT_ACCESS_TOKEN_SECRET,
+            });
 
-        const user = await this.userService.findUserById(payload.sub);
-        if (!user) throw new Error("User not found");
+            const user = await this.userService.findUserById(payload.sub);
+            if (!user) 
+                throw new Error("User not found");
 
+            client.join(user.id.toString());
 
-        user.chatMembers.forEach(groupchatId => {
-            client.join(groupchatId.toString());
-        });
+            client.data.userId = user.id;
+            
+            user.chatMembers.forEach(groupchatId => {
+                client.join(groupchatId.toString());
+            });
 
-        console.log(`User ${user.userName} connected and joined rooms: ${user.chatMembers}`);
-        this.server.emit('userConnected', { userId: user.id, socketId: client.id })
+            console.log(`User ${user.userName} connected and joined rooms: ${user.chatMembers.map(m => m.chat.chatName)}`);
+            this.server.emit('userConnected', { userId: user.id, socketId: client.id })
+
+            const userName = user.userName;
+            client.emit('getUsername', userName);
+
+            const groupchats = await this.chatService.getAllChatsForUser(user.id);
+            client.emit('userGroupchats', groupchats);      
+        }
+        catch(error)
+        {
+            console.error("JWT verification failed:", error.message);
+            client.emit("authError", { message: "Invalid or expired token" });
+            client.disconnect();
+        }
     }
 
     handleDisconnect(client: Socket) {
-        console.log(`Client dicconnected: ${client.id}`);
+        console.log(`Client disconnected: ${client.id}`);
         this.server.emit('userDisonnected', client.id);
     }
 
@@ -56,12 +80,6 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     {
         console.log(`Message from ${client.id}: ${messageDto.content}`);
         this.server.emit('recieveMessage', {sender: messageDto.sender, message: messageDto.content});
-    }
-
-    @SubscribeMessage('getUsername')
-    handleGetUsername(@MessageBody() messageDto: MessageDto, @ConnectedSocket() client: Socket)
-    {
-
     }
 
     @SubscribeMessage('getAllUsernames')
@@ -76,13 +94,12 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     async handleNewGroupChatCreated(@MessageBody() newGCDto: NewGCDto, @ConnectedSocket() client: Socket)
     {
         const users = await this.userService.findUsersByUserNames(newGCDto.users);
-
+        const userIds = users.map(u => ({userId: u.id}))
         const chat = await this.databaseSerive.chat.create({
             data: {
                 chatName: newGCDto.name,
-                chatType: 'GROUP',
                 chatMembers: {
-                    create: users.map(u => ({userId: u.id, role: 'MEMBER'}))
+                    create: userIds
                 }
             },
             include: {
@@ -90,6 +107,21 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
             }
         })
 
+        for(const user of users){
+            this.server.to(user.id.toString()).socketsJoin(chat.id.toString());
+            console.log("Current user id: " + user.id)
+            const groupchats = await this.chatService.getAllChatsForUser(user.id);
+            this.server.to(user.id.toString()).emit("userGroupchats",groupchats);
+        }
+        
+    }
+
+    @SubscribeMessage('getUserGroupChats')
+    async handleGetUserGroupchats(@ConnectedSocket() client: Socket)
+    {
+        const userId = client.data.userId;
+        const groupchats = await this.chatService.getAllChatsForUser(userId);
+        client.emit('userGroupchats', groupchats);
     }
 
 }
