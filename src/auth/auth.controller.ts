@@ -11,7 +11,6 @@ export class AuthController {
 
     @Post('login')
     async login(@Body() authDto: AuthDto, @Res() res: Response){
-        console.log("here")
         return this.authService.authenticateUser(authDto,res);
     }
 

@@ -1,11 +1,15 @@
-import { ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
+import { ConnectedSocket, MessageBody, OnGatewayConnection, 
+    OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import { Server, Socket }  from 'socket.io'
-import { type MessageDto, type NewGCDto } from "./event.dto";
+import { NewGCDto, type MessageDto } from "./event.dto";
 import { UsersService } from "src/users/users.service";
 import { DatabaseService } from "src/database/database.service";
 import { JwtService } from '@nestjs/jwt';
 import { Client } from "node_modules/socket.io/dist/client";
 import { ChatService } from "src/chats/chat.service";
+import { UsePipes, ValidationPipe } from "@nestjs/common";
+import { MessageService } from "src/messages/messages.service";
+import { MessagesModule } from "src/messages/message.module";
 
 
 @WebSocketGateway({namespace: 'chat', cors: { origin: "http://localhost:5173", credentials: true}})
@@ -17,7 +21,8 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     constructor(private userService: UsersService,
                 private databaseSerive: DatabaseService, 
                 private jwtService: JwtService,
-                private chatService: ChatService) {}
+                private chatService: ChatService,
+                private messageService: MessageService) {}
 
 
     private userSockets = new Map<number, Set<string>>();
@@ -48,9 +53,11 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
             client.join(user.id.toString());
 
             client.data.userId = user.id;
+
+            await this.userService.updateUser(user.id,{ isLoggedIn:true })
             
-            user.chatMembers.forEach(groupchatId => {
-                client.join(groupchatId.toString());
+            user.chatMembers.forEach(m => {
+                client.join(m.chat.chatName);
             });
 
             console.log(`User ${user.userName} connected and joined rooms: ${user.chatMembers.map(m => m.chat.chatName)}`);
@@ -64,22 +71,43 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
         }
         catch(error)
         {
-            console.error("JWT verification failed:", error.message);
             client.emit("authError", { message: "Invalid or expired token" });
             client.disconnect();
         }
     }
 
-    handleDisconnect(client: Socket) {
+    async handleDisconnect(client: Socket) {
         console.log(`Client disconnected: ${client.id}`);
+        const userId = client.data.userId;
+        if (!userId) {
+            console.warn(`No userId for socket ${client.id}, skipping logout update`);
+            client.disconnect();
+            return;
+        }
+        await this.userService.updateUser(userId,{ isLoggedIn: false })
+        client.disconnect();
         this.server.emit('userDisonnected', client.id);
     }
 
     @SubscribeMessage('newMessage')
-    handleNewMessage(@MessageBody() messageDto: MessageDto, @ConnectedSocket() client: Socket)
+    async handleNewMessage(@MessageBody() messageDto: MessageDto, @ConnectedSocket() client: Socket)
     {
-        console.log(`Message from ${client.id}: ${messageDto.content}`);
-        this.server.emit('recieveMessage', {sender: messageDto.sender, message: messageDto.content});
+        console.log(`Message from ${client.id}: to room: ${client.data.currentChatName}`);
+
+        const chatId = await this.chatService.getChatIdByName(client.data.currentChatName);
+        await this.messageService.createMessage(messageDto.content, client.data.userId, chatId);
+
+        const name = client.data.currentChatName;
+        const messages = await this.chatService.getAllMessagesFromChat(name);
+
+        const user = await this.userService.findUserById(client.data.userId);
+        const username = user?.userName;
+
+        const sockets = await this.server.in(name).fetchSockets();
+        for(const socket of sockets)
+        {
+            socket.data.currentChatName === name ? socket.emit("recieveMessage",{username,messages}) : socket.emit("notification",name);
+        }
     }
 
     @SubscribeMessage('getAllUsernames')
@@ -91,8 +119,14 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     }
 
     @SubscribeMessage('newGCCreated')
+    @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
     async handleNewGroupChatCreated(@MessageBody() newGCDto: NewGCDto, @ConnectedSocket() client: Socket)
     {
+        if(newGCDto.name === " ")
+        {
+            console.log("Name cannot be empty");
+            return;
+        }
         const users = await this.userService.findUsersByUserNames(newGCDto.users);
         const userIds = users.map(u => ({userId: u.id}))
         const chat = await this.databaseSerive.chat.create({
@@ -108,8 +142,7 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
         })
 
         for(const user of users){
-            this.server.to(user.id.toString()).socketsJoin(chat.id.toString());
-            console.log("Current user id: " + user.id)
+            this.server.to(user.id.toString()).socketsJoin(newGCDto.name);
             const groupchats = await this.chatService.getAllChatsForUser(user.id);
             this.server.to(user.id.toString()).emit("userGroupchats",groupchats);
         }
@@ -122,6 +155,24 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
         const userId = client.data.userId;
         const groupchats = await this.chatService.getAllChatsForUser(userId);
         client.emit('userGroupchats', groupchats);
+    }
+
+    @SubscribeMessage('getAllMessagesFromChat')
+    async handleGetAllMessagesFromChat(@MessageBody() body, @ConnectedSocket() client: Socket)
+    {
+        const name = body.chatName;
+        console.log(`User ${client.data.userId} went to room: ${name}`);
+        client.data.currentChatName = name;
+        const messages = await this.chatService.getAllMessagesFromChat(name);
+
+        const user = await this.userService.findUserById(client.data.userId);
+        const username = user?.userName;
+
+        const sockets = await this.server.in(name).fetchSockets();
+        for(const socket of sockets)
+        {
+            socket.data.currentChatName === name ? socket.emit("recieveMessage",{username,messages}) : socket.emit("notification",name);
+        }
     }
 
 }

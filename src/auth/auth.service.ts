@@ -6,17 +6,17 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { type Response } from 'express';
 import { Req, Res, Body } from '@nestjs/common';
+import { DatabaseService } from 'src/database/database.service';
 
 @Injectable()
 export class AuthService {
 
-    constructor(private usersService: UsersService, private jwtService: JwtService) {}
+    constructor(private usersService: UsersService, private jwtService: JwtService, private database: DatabaseService) {}
 
     async validateUser(authDto: AuthDto): Promise<SignInDto | null>{
         const user = await this.usersService.findUserByUserName(authDto.userName);
         if(!user)
             throw new UnauthorizedException('Invalid username.');
-
         const doesPasswordMatch = await bcrypt.compare(authDto.password, user.password);
         if(doesPasswordMatch){
             return {
@@ -32,12 +32,12 @@ export class AuthService {
         if(!user)
             throw new UnauthorizedException();
         return this.login(user, res);
-        
     }
 
     async login(signInDto: SignInDto, res: Response){
 
         const user = await this.usersService.findUserByUserName(signInDto.userName);
+
         if(!user)
             throw new UnauthorizedException("User doesn't exist");
         if (user.isLoggedIn) {
@@ -95,7 +95,6 @@ export class AuthService {
                 secret: process.env.JWT_REFRESH_TOKEN_SECRET,
             });
 
-            console.log("payload.sub: " + payload.sub)
             const user = await this.usersService.findUserById(payload.sub);
             if(!user)
                 return res.status(401).json({ message: 'User not found' });

@@ -38,7 +38,7 @@ model Message {
 
 model Chat {
   id       Int      @id @default(autoincrement())
-  chatName String
+  chatName String   @unique
 
   chatMembers ChatMember[]
   messages    Message[]
