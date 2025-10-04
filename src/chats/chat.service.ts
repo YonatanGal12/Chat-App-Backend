@@ -118,6 +118,7 @@ export class ChatService {
             select: {
                 messages: {
                   select: {
+                      id: true,
                       content: true,
                       user: {
                           select: {
@@ -136,8 +137,10 @@ export class ChatService {
         if (!chatWithMessages) return [];
 
         return chatWithMessages.messages.map(msg => ({
+          id: msg.id,
           content: msg.content,
           sender: msg.user.userName,
+          sentAt: msg.sentAt
         }));
 
     }

@@ -25,8 +25,6 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
                 private messageService: MessageService) {}
 
 
-    private userSockets = new Map<number, Set<string>>();
-
 
     afterInit(server: Server) {
         console.log(`Server running`)
@@ -61,7 +59,6 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
             });
 
             console.log(`User ${user.userName} connected and joined rooms: ${user.chatMembers.map(m => m.chat.chatName)}`);
-            this.server.emit('userConnected', { userId: user.id, socketId: client.id })
 
             const userName = user.userName;
             client.emit('getUsername', userName);
@@ -127,6 +124,11 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
             console.log("Name cannot be empty");
             return;
         }
+        if(newGCDto.name.length > 50)
+        {
+            console.log("Name too long.");
+            return;
+        }
         const users = await this.userService.findUsersByUserNames(newGCDto.users);
         const userIds = users.map(u => ({userId: u.id}))
         const chat = await this.databaseSerive.chat.create({
@@ -168,11 +170,7 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
         const user = await this.userService.findUserById(client.data.userId);
         const username = user?.userName;
 
-        const sockets = await this.server.in(name).fetchSockets();
-        for(const socket of sockets)
-        {
-            socket.data.currentChatName === name ? socket.emit("recieveMessage",{username,messages}) : socket.emit("notification",name);
-        }
+       client.emit("recieveMessage",{username,messages});
     }
 
 }

@@ -94,7 +94,7 @@ export class AuthService {
             const payload = await this.jwtService.verifyAsync(refreshToken, {
                 secret: process.env.JWT_REFRESH_TOKEN_SECRET,
             });
-
+            
             const user = await this.usersService.findUserById(payload.sub);
             if(!user)
                 return res.status(401).json({ message: 'User not found' });
