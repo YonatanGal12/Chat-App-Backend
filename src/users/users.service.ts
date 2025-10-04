@@ -2,9 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from 'src/database/database.service';
 import { UpdateUserDto, UserDto } from './dto/userDto';
-import { validateOrReject } from 'class-validator';
 import * as bcrypt from 'bcrypt';
-import { hash } from 'crypto';
 
 @Injectable()
 export class UsersService {

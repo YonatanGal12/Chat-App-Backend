@@ -170,7 +170,7 @@ export class EventGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
         const user = await this.userService.findUserById(client.data.userId);
         const username = user?.userName;
 
-       client.emit("recieveMessage",{username,messages});
+        client.emit("recieveMessage",{username,messages});
     }
 
 }
